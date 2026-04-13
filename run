@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+#
+# usage: ./run command [argument ...]
+#
+# Commands used during development / CI.
+# See https://death.andgravity.com/run-sh
+
+################################################################################
+# Project-specific commands follow.
+
+function install {
+  # Install build dependencies.
+  rustup target add thumbv8m.main-none-eabihf
+  curl --proto '=https' --tlsv1.2 -LsSf https://github.com/probe-rs/probe-rs/releases/latest/download/probe-rs-tools-installer.sh | sh
+  cargo install flip-link --locked --force
+}
+
+function cargo-clean {
+  # Clean the cargo build directory.
+  cargo clean $@
+}
+
+function clean {
+  # Remove all temporary files and directories.
+  cargo-clean
+}
+
+function build {
+  # Build the project.
+  cargo build $@
+}
+
+function get-version {
+  VERSION=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+  echo "$VERSION"
+}
+
+function build-uf2 {
+  # Build the project and convert to UF2 for RP2350.
+  build --release
+  mkdir -p artifacts
+  local elf=target/thumbv8m.main-none-eabihf/release/halspa-ui-pico
+  # picotool requires .elf extension
+  cp "$elf" "${elf}.elf"
+  picotool uf2 convert "${elf}.elf" artifacts/halspa-ui-pico.uf2 --family rp2350-arm-s
+  rm "${elf}.elf"
+}
+
+function run {
+  # Run the project via probe-rs.
+  cargo run $@
+}
+
+function upload {
+  cargo flash --chip RP2350 $@
+}
+
+function flash {
+  # Alias for upload.
+  upload $@
+}
+
+function monitor {
+  probe-rs attach --chip RP2350 target/thumbv8m.main-none-eabihf/debug/halspa-ui-pico $@
+}
+
+function attach {
+  monitor $@
+}
+
+################################################################################
+# Project-specific commands end.
+
+set -o nounset
+set -o pipefail
+set -o errexit
+
+# Change the current directory to the project root.
+PROJECT_ROOT=${0%/*}
+if [[ $0 != $PROJECT_ROOT && $PROJECT_ROOT != "" ]]; then
+  cd "$PROJECT_ROOT"
+fi
+readonly PROJECT_ROOT=$(pwd)
+
+readonly SCRIPT="$PROJECT_ROOT/$(basename "$0")"
+
+################################################################################
+# Meta-commands and utilities follow.
+
+function help {
+  printf "%s <task> [args]\n\nTasks:\n" "${0}"
+  compgen -A function | grep -v "^_" | cat -n
+
+  printf "\nExtended help:\n  Each task has comments for general usage\n"
+}
+
+once_hash_array=()
+function _once {
+  local command="$*"
+  local hash=$(echo "$command" | shasum | cut -d' ' -f1)
+  if [[ ! " ${once_hash_array[@]} " =~ " ${hash} " ]]; then
+    once_hash_array+=("$hash")
+    eval "$command"
+  fi
+}
+
+TIMEFORMAT=$'\nTask completed in %3lR'
+time "${@:-help}"
