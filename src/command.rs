@@ -3,11 +3,18 @@
 //! Commands are text lines terminated by \n or \r. Responses use "=== " prefix.
 //! Unsolicited events use "=== EVENT: " prefix.
 
+use crate::buzzer::BuzzerPattern;
+use crate::led::LedState;
+
 /// Parsed command from USB serial input.
 pub enum Command {
     Boot,
     Ping,
     Id,
+    Led(LedState),
+    Buzzer(BuzzerPattern),
+    UnknownLedState,
+    UnknownBuzzerPattern,
     Unknown,
 }
 
@@ -21,6 +28,20 @@ pub fn parse(line: &[u8]) -> Command {
     }
     if line == b"ID" {
         return Command::Id;
+    }
+    if line.starts_with(b"LED ") {
+        let arg = &line[4..];
+        return match LedState::from_name(arg) {
+            Some(state) => Command::Led(state),
+            None => Command::UnknownLedState,
+        };
+    }
+    if line.starts_with(b"BUZZER ") {
+        let arg = &line[7..];
+        return match BuzzerPattern::from_name(arg) {
+            Some(pattern) => Command::Buzzer(pattern),
+            None => Command::UnknownBuzzerPattern,
+        };
     }
     Command::Unknown
 }

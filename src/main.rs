@@ -1,22 +1,29 @@
 #![no_std]
 #![no_main]
 
+mod buzzer;
 mod command;
+mod led;
 mod pins;
 
 use defmt_rtt as _;
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::InputPin;
+use embedded_hal::pwm::SetDutyCycle;
 use panic_probe as _;
 
 use rp235x_hal as hal;
+use hal::clocks::Clock;
+use hal::gpio::FunctionPwm;
 use hal::reboot::{reboot, RebootArch, RebootKind};
 use hal::usb::UsbBus;
 
 use usb_device::{class_prelude::*, prelude::*};
 use usbd_serial::SerialPort;
 
+use buzzer::Buzzer;
 use command::Command;
+use led::Led;
 
 #[link_section = ".start_block"]
 #[used]
@@ -39,7 +46,6 @@ impl Button {
     }
 
     /// Check button state and return true on a new press event (falling edge, debounced).
-    /// `is_low` indicates the button is currently pressed (active low).
     fn update(&mut self, is_low: bool, now_us: u64) -> bool {
         if is_low == self.was_pressed {
             return false;
@@ -49,7 +55,6 @@ impl Button {
         }
         self.was_pressed = is_low;
         self.last_change_us = now_us;
-        // Only fire on press (transition to low)
         is_low
     }
 }
@@ -84,6 +89,28 @@ fn main() -> ! {
     // Button inputs with internal pull-ups (active low)
     let mut button_start = pins.button_start.into_pull_up_input();
     let mut button_estop = pins.button_estop.into_pull_up_input();
+
+    // PWM setup for RGB LED
+    // GPIO6 = PWM3A, GPIO7 = PWM3B, GPIO8 = PWM4A
+    let pwm_slices = hal::pwm::Slices::new(pac.PWM, &mut pac.RESETS);
+
+    let mut pwm3 = pwm_slices.pwm3;
+    pwm3.set_ph_correct();
+    pwm3.enable();
+    let _led_r_pin = pins.led_r.into_function::<FunctionPwm>();
+    let _led_g_pin = pins.led_g.into_function::<FunctionPwm>();
+
+    let mut pwm4 = pwm_slices.pwm4;
+    pwm4.set_ph_correct();
+    pwm4.enable();
+    let _led_b_pin = pins.led_b.into_function::<FunctionPwm>();
+
+    // PWM setup for buzzer (GPIO10 = PWM5A, separate slice from LEDs)
+    let mut pwm5 = pwm_slices.pwm5;
+    pwm5.set_ph_correct();
+    pwm5.enable();
+    let _buzzer_pin = pins.buzzer.into_function::<FunctionPwm>();
+    let sys_clock_hz = clocks.system_clock.freq().to_Hz();
 
     // USB CDC setup
     let usb_bus = UsbBusAllocator::new(UsbBus::new(
@@ -122,6 +149,10 @@ fn main() -> ! {
 
     let mut btn_start = Button::new();
     let mut btn_estop = Button::new();
+    let mut led_ctrl = Led::new();
+    let mut buzzer_ctrl = Buzzer::new();
+
+    let mut last_buzzer_freq: u16 = 0;
 
     // Main loop
     loop {
@@ -139,6 +170,26 @@ fn main() -> ! {
             usb_dev.poll(&mut [&mut serial]);
         }
 
+        // Update LED animation
+        let (r, g, b) = led_ctrl.update();
+        let _ = pwm3.channel_a.set_duty_cycle(r as u16 * 257); // Scale 0-255 to 0-65535
+        let _ = pwm3.channel_b.set_duty_cycle(g as u16 * 257);
+        let _ = pwm4.channel_a.set_duty_cycle(b as u16 * 257);
+
+        // Update buzzer (pwm5, separate from LED PWM)
+        let freq = buzzer_ctrl.update();
+        if freq != last_buzzer_freq {
+            last_buzzer_freq = freq;
+            if freq == 0 {
+                let _ = pwm5.channel_a.set_duty_cycle(0);
+            } else {
+                // With phase-correct PWM: f_pwm = f_sys / (2 * TOP)
+                let top = sys_clock_hz / (2 * freq as u32);
+                pwm5.set_top(top as u16);
+                let _ = pwm5.channel_a.set_duty_cycle(top as u16 / 2);
+            }
+        }
+
         // Read USB serial data into command buffer
         let mut buf = [0u8; 64];
         if let Ok(count) = serial.read(&mut buf) {
@@ -149,7 +200,10 @@ fn main() -> ! {
                         usb_dev.poll(&mut [&mut serial]);
                     } else if cmd_len > 0 {
                         let cmd = command::parse(&cmd_buf[..cmd_len]);
-                        handle_command(cmd, &mut serial, &mut usb_dev);
+                        handle_command(
+                            cmd, &mut serial, &mut usb_dev,
+                            &mut led_ctrl, &mut buzzer_ctrl,
+                        );
                     }
                     cmd_len = 0;
                     cmd_overflow = false;
@@ -171,6 +225,8 @@ fn handle_command<B: usb_device::bus::UsbBus>(
     cmd: Command,
     serial: &mut SerialPort<B>,
     usb_dev: &mut UsbDevice<B>,
+    led_ctrl: &mut Led,
+    buzzer_ctrl: &mut Buzzer,
 ) {
     let write_fn =
         |serial: &mut SerialPort<B>, usb_dev: &mut UsbDevice<B>, data: &[u8]| {
@@ -199,6 +255,24 @@ fn handle_command<B: usb_device::bus::UsbBus>(
 
         Command::Id => {
             write_fn(serial, usb_dev, b"=== OK: ID HALSPA-UI\n");
+        }
+
+        Command::Led(state) => {
+            led_ctrl.set_state(state);
+            write_fn(serial, usb_dev, b"=== OK: LED\n");
+        }
+
+        Command::Buzzer(pattern) => {
+            buzzer_ctrl.set_pattern(pattern);
+            write_fn(serial, usb_dev, b"=== OK: BUZZER\n");
+        }
+
+        Command::UnknownLedState => {
+            write_fn(serial, usb_dev, b"=== ERROR: Unknown LED state\n");
+        }
+
+        Command::UnknownBuzzerPattern => {
+            write_fn(serial, usb_dev, b"=== ERROR: Unknown buzzer pattern\n");
         }
 
         Command::Unknown => {

@@ -11,6 +11,14 @@ bsp_pins!(
     Gpio2 { name: button_start },
     /// E-stop button input (active low, internal pull-up)
     Gpio3 { name: button_estop },
+    /// RGB LED - Red channel (PWM)
+    Gpio6 { name: led_r },
+    /// RGB LED - Green channel (PWM)
+    Gpio7 { name: led_g },
+    /// RGB LED - Blue channel (PWM)
+    Gpio8 { name: led_b },
+    /// Piezo buzzer (PWM) — on a separate PWM slice from LEDs
+    Gpio10 { name: buzzer },
 );
 
 /// Debounce time in microseconds (50ms)
