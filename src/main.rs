@@ -53,9 +53,25 @@ impl Button {
         if now_us.wrapping_sub(self.last_change_us) < pins::DEBOUNCE_US {
             return false;
         }
-        self.was_pressed = is_low;
+        if !is_low {
+            return false; // Rising edge — use released() instead
+        }
+        self.was_pressed = true;
         self.last_change_us = now_us;
-        is_low
+        true
+    }
+
+    /// Check for a release event (rising edge, debounced).
+    fn released(&mut self, is_low: bool, now_us: u64) -> bool {
+        if is_low || !self.was_pressed {
+            return false;
+        }
+        if now_us.wrapping_sub(self.last_change_us) < pins::DEBOUNCE_US {
+            return false;
+        }
+        self.was_pressed = false;
+        self.last_change_us = now_us;
+        true
     }
 }
 
@@ -89,6 +105,10 @@ fn main() -> ! {
     // Button inputs with internal pull-ups (active low)
     let mut button_start = pins.button_start.into_pull_up_input();
     let mut button_estop = pins.button_estop.into_pull_up_input();
+
+    // SPST switch inputs with internal pull-ups (active low = closed)
+    let mut switch_1 = pins.switch_1.into_pull_up_input();
+    let mut switch_2 = pins.switch_2.into_pull_up_input();
 
     // PWM setup for RGB LED
     // GPIO6 = PWM3A, GPIO7 = PWM3B, GPIO8 = PWM4A
@@ -149,6 +169,8 @@ fn main() -> ! {
 
     let mut btn_start = Button::new();
     let mut btn_estop = Button::new();
+    let mut sw_1 = Button::new();
+    let mut sw_2 = Button::new();
     let mut led_ctrl = Led::new();
     let mut buzzer_ctrl = Buzzer::new();
 
@@ -168,6 +190,26 @@ fn main() -> ! {
         if btn_estop.update(button_estop.is_low().unwrap_or(false), now_us) {
             let _ = serial.write(b"=== EVENT: BUTTON_ESTOP\n");
             usb_dev.poll(&mut [&mut serial]);
+        }
+        {
+            let sw1_low = switch_1.is_low().unwrap_or(false);
+            if sw_1.update(sw1_low, now_us) {
+                let _ = serial.write(b"=== EVENT: SWITCH_1_CLOSED\n");
+                usb_dev.poll(&mut [&mut serial]);
+            } else if sw_1.released(sw1_low, now_us) {
+                let _ = serial.write(b"=== EVENT: SWITCH_1_OPEN\n");
+                usb_dev.poll(&mut [&mut serial]);
+            }
+        }
+        {
+            let sw2_low = switch_2.is_low().unwrap_or(false);
+            if sw_2.update(sw2_low, now_us) {
+                let _ = serial.write(b"=== EVENT: SWITCH_2_CLOSED\n");
+                usb_dev.poll(&mut [&mut serial]);
+            } else if sw_2.released(sw2_low, now_us) {
+                let _ = serial.write(b"=== EVENT: SWITCH_2_OPEN\n");
+                usb_dev.poll(&mut [&mut serial]);
+            }
         }
 
         // Update LED animation

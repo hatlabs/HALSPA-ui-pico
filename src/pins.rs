@@ -11,6 +11,10 @@ bsp_pins!(
     Gpio2 { name: button_start },
     /// E-stop button input (active low, internal pull-up)
     Gpio3 { name: button_estop },
+    /// SPST switch 1 input (active low, internal pull-up)
+    Gpio4 { name: switch_1 },
+    /// SPST switch 2 input (active low, internal pull-up)
+    Gpio5 { name: switch_2 },
     /// RGB LED - Red channel (PWM)
     Gpio6 { name: led_r },
     /// RGB LED - Green channel (PWM)
