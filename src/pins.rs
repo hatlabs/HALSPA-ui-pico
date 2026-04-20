@@ -8,7 +8,7 @@ bsp_pins!(
     /// On-board LED (directly on Pico 2 board)
     Gpio25 { name: led },
     /// Start button input (active low, internal pull-up)
-    Gpio2 { name: button_start },
+    Gpio11 { name: button_start },
     /// E-stop button input (active low, internal pull-up)
     Gpio3 { name: button_estop },
     /// SPST switch 1 input (active low, internal pull-up)
