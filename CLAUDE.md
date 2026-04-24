@@ -57,7 +57,7 @@ Commands are newline-terminated text. Responses use `=== OK:`, `=== ERROR:`, `==
 
 ## Pin Assignments
 
-Pin assignments in `src/pins.rs`. GPIO11 (start button) was reassigned from GPIO2 due to a hardware fault on this Pico 2 unit (see `GPIO2_ISSUE.md`).
+Pin assignments in `src/pins.rs`. GPIO11 (start button) was reassigned from GPIO2 due to a hardware fault on this Pico 2 unit (see [`docs/solutions/runtime-errors/pico-gpio2-hardware-fault-workaround-2026-04-20.md`](docs/solutions/runtime-errors/pico-gpio2-hardware-fault-workaround-2026-04-20.md)).
 
 ## Architecture
 
