@@ -69,7 +69,7 @@ impl Led {
                 (brightness, brightness, brightness)
             }
 
-            LedState::SolidYellow => (255, 180, 0),
+            LedState::SolidYellow => (255, 100, 0),
 
             LedState::SolidGreen => (0, 255, 0),
 
